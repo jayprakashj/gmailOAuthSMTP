@@ -7,21 +7,35 @@
     $tokenRecord = OAuthToken::findByEmail($userEmail);
 @endphp
 <div class="mt-2 text-gray-600 dark:text-gray-400 text-sm">
-    <h3>Generate Token</h3>
-    <p>Once you click on below button it will redirect you to Google Account for select. Returned that with Token. If refresh Token Not found then please click Generate Token Button to grab token instead.</p>
+    <h3>Token Management</h3>
+    <p><strong>Generate Token:</strong> Click to redirect to Google Account for authentication and get new tokens.</p>
+    <p><strong>Refresh Token:</strong> Click to refresh your existing access token (requires refresh token).</p>
+    <p><strong>Clear Tokens:</strong> Click to clear all tokens and force fresh authorization (useful if no refresh token).</p>
 </div>
 <div class="mt-2 text-gray-600 dark:text-gray-400 text-sm flex justify-between flex-wrap gap-2">
-    <form action="{{ route('generate.token') }}" method="post" class="mr-2">
-        @csrf
-        <button type="submit" class="cursor p-2 px-6 bg-gray-900 text-gray-600 font-semibold">Generate Token</button>
-    </form>
-    
-    @if ( $tokenRecord && $tokenRecord->refresh_token )
-    <form action="{{ route('refresh.token') }}" method="post" class="mr-2">
-        @csrf
-        <button type="submit" class="cursor p-2 px-6 bg-blue-600 text-white font-semibold">Refresh Token</button>
-    </form>
-    @endif
+    <div class="flex gap-2">
+        <form action="{{ route('generate.token') }}" method="post">
+            @csrf
+            <button type="submit" class="cursor p-2 px-6 bg-gray-900 text-gray-600 font-semibold">Generate Token</button>
+        </form>
+        
+        
+        <form action="{{ route('refresh.token') }}" method="post">
+            @csrf
+            <button type="submit" class="cursor p-2 px-6 bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors">
+                🔄 Refresh Token
+            </button>
+        </form>
+        
+        @if ( $tokenRecord )
+        <form action="{{ route('clear.tokens') }}" method="post">
+            @csrf
+            <button type="submit" class="cursor p-2 px-6 bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors">
+                🗑️ Clear Tokens
+            </button>
+        </form>
+        @endif
+    </div>
     
     @if ( $tokenRecord && $tokenRecord->access_token )
     <form action="{{ route('send.email') }}" method="post">

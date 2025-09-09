@@ -28,7 +28,9 @@ class OAuthController extends Controller
         $this->google_options = [
             'scope' => [
                 'https://mail.google.com/'
-            ]
+            ],
+            'access_type' => 'offline',
+            'prompt' => 'consent'
         ];
         $params = [
             'clientId'      => $this->client_id,
@@ -68,6 +70,14 @@ class OAuthController extends Controller
                 $token = $tokenObj->getToken();
                 $refresh_token = $tokenObj->getRefreshToken();
                 $expires_at = $tokenObj->getExpires();
+                
+                // Debug information
+                \Log::info('Token generation debug:', [
+                    'access_token' => $token ? 'Present' : 'Missing',
+                    'refresh_token' => $refresh_token ? 'Present' : 'Missing',
+                    'expires_at' => $expires_at,
+                    'token_obj' => $tokenObj
+                ]);
                 
                 // Store token data in database
                 $userEmail = 'jpcloudspot@gmail.com'; // You can make this dynamic later
@@ -126,8 +136,13 @@ class OAuthController extends Controller
         $userEmail = session('user_email', 'jpcloudspot@gmail.com');
         $tokenRecord = OAuthToken::findByEmail($userEmail);
         
-        if (!$tokenRecord || !$tokenRecord->refresh_token) {
-            throw new Exception('No refresh token available');
+        // Debug information
+        if (!$tokenRecord) {
+            return redirect()->back()->with('error', 'No token record found for email: ' . $userEmail . '. Please generate a new token first.');
+        }
+        
+        if (!$tokenRecord->refresh_token) {
+            return redirect()->back()->with('error', 'No refresh token available for email: ' . $userEmail . '. Please generate a new token first.');
         }
         
         try {
@@ -155,10 +170,11 @@ class OAuthController extends Controller
                 'user_email' => $userEmail
             ]);
             
-            return $new_access_token;
+            return redirect()->back()->with('success', 'Token refreshed successfully! New expiry: ' . 
+                ($new_expires_at ? date('Y-m-d H:i:s', $new_expires_at) : 'Unknown'));
             
         } catch (Exception $e) {
-            throw new Exception('Failed to refresh token: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to refresh token: ' . $e->getMessage());
         }
     }
 
@@ -199,5 +215,26 @@ class OAuthController extends Controller
         }
         
         return false;
+    }
+
+    /**
+     * Clear existing tokens and force fresh authorization
+     */
+    public function clearTokens()
+    {
+        $userEmail = session('user_email', 'jpcloudspot@gmail.com');
+        
+        // Clear from database
+        OAuthToken::where('user_email', $userEmail)->delete();
+        
+        // Clear from session
+        session()->forget([
+            'oauth_access_token',
+            'oauth_refresh_token', 
+            'oauth_expires_at',
+            'user_email'
+        ]);
+        
+        return redirect()->back()->with('success', 'Tokens cleared. Please generate a new token to get a refresh token.');
     }
 }
