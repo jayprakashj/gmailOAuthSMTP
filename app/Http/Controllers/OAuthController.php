@@ -6,6 +6,7 @@ use Exception;
 use Illuminate\Http\Request;
 use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
 use League\OAuth2\Client\Provider\Google;
+use App\Models\OAuthToken;
 
 class OAuthController extends Controller
 {
@@ -66,6 +67,25 @@ class OAuthController extends Controller
                 );
                 $token = $tokenObj->getToken();
                 $refresh_token = $tokenObj->getRefreshToken();
+                $expires_at = $tokenObj->getExpires();
+                
+                // Store token data in database
+                $userEmail = 'jpcloudspot@gmail.com'; // You can make this dynamic later
+                OAuthToken::updateOrCreateForUser(
+                    $userEmail,
+                    $token,
+                    $refresh_token,
+                    $expires_at
+                );
+                
+                // Also store in session for backward compatibility
+                session([
+                    'oauth_access_token' => $token,
+                    'oauth_refresh_token' => $refresh_token,
+                    'oauth_expires_at' => $expires_at,
+                    'user_email' => $userEmail
+                ]);
+                
                 if( $refresh_token != null && !empty($refresh_token) ) {
                     return redirect()->back()->with('token', $refresh_token);
                 } elseif ( $token != null && !empty($token) ) {
@@ -78,5 +98,106 @@ class OAuthController extends Controller
         } catch(Exception $e) {
             return redirect()->back()->with('error', 'Exception: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Check if token is expired
+     */
+    public function isTokenExpired($userEmail = null)
+    {
+        if ($userEmail === null) {
+            $userEmail = session('user_email', 'jpcloudspot@gmail.com');
+        }
+        
+        $tokenRecord = OAuthToken::findByEmail($userEmail);
+        
+        if (!$tokenRecord) {
+            return true; // No token means expired
+        }
+        
+        return $tokenRecord->isExpired();
+    }
+
+    /**
+     * Refresh access token using refresh token
+     */
+    public function refreshAccessToken()
+    {
+        $userEmail = session('user_email', 'jpcloudspot@gmail.com');
+        $tokenRecord = OAuthToken::findByEmail($userEmail);
+        
+        if (!$tokenRecord || !$tokenRecord->refresh_token) {
+            throw new Exception('No refresh token available');
+        }
+        
+        try {
+            $tokenObj = $this->provider->getAccessToken('refresh_token', [
+                'refresh_token' => $tokenRecord->refresh_token
+            ]);
+            
+            $new_access_token = $tokenObj->getToken();
+            $new_refresh_token = $tokenObj->getRefreshToken();
+            $new_expires_at = $tokenObj->getExpires();
+            
+            // Update database with new token data
+            OAuthToken::updateOrCreateForUser(
+                $userEmail,
+                $new_access_token,
+                $new_refresh_token ?: $tokenRecord->refresh_token, // Keep old refresh token if new one not provided
+                $new_expires_at
+            );
+            
+            // Also update session for backward compatibility
+            session([
+                'oauth_access_token' => $new_access_token,
+                'oauth_refresh_token' => $new_refresh_token ?: $tokenRecord->refresh_token,
+                'oauth_expires_at' => $new_expires_at,
+                'user_email' => $userEmail
+            ]);
+            
+            return $new_access_token;
+            
+        } catch (Exception $e) {
+            throw new Exception('Failed to refresh token: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get valid access token (refresh if needed)
+     */
+    public function getValidAccessToken()
+    {
+        $userEmail = session('user_email', 'jpcloudspot@gmail.com');
+        
+        if ($this->isTokenExpired($userEmail)) {
+            return $this->refreshAccessToken();
+        }
+        
+        $tokenRecord = OAuthToken::findByEmail($userEmail);
+        return $tokenRecord ? $tokenRecord->access_token : null;
+    }
+
+    /**
+     * Load tokens from database into session
+     */
+    public function loadTokensFromDatabase($userEmail = null)
+    {
+        if ($userEmail === null) {
+            $userEmail = session('user_email', 'jpcloudspot@gmail.com');
+        }
+        
+        $tokenRecord = OAuthToken::findByEmail($userEmail);
+        
+        if ($tokenRecord) {
+            session([
+                'oauth_access_token' => $tokenRecord->access_token,
+                'oauth_refresh_token' => $tokenRecord->refresh_token,
+                'oauth_expires_at' => $tokenRecord->expires_at ? $tokenRecord->expires_at->timestamp : null,
+                'user_email' => $tokenRecord->user_email
+            ]);
+            return true;
+        }
+        
+        return false;
     }
 }
