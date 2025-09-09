@@ -3,112 +3,120 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use League\OAuth2\Client\Provider\Google;
-use PHPMailer\PHPMailer\Exception;
-use PHPMailer\PHPMailer\OAuth;
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\SMTP;
 use App\Models\OAuthToken;
+use League\OAuth2\Client\Provider\Google;
 
 class MailController extends Controller
 {
-
-    private $email;
-    private $name;
-    private $client_id;
-    private $client_secret;
-    private $provider;
+    private $fromEmail = 'jpcloudspot@gmail.com';
+    private $fromName = 'Jayprakash JP Cloudspot';
+    private $toEmail = 'jayprakashj@gmail.com';
+    private $toName = 'Jayprakash';
 
     /**
      * Default Constructor
      */
     public function __construct()
     {
-        $this->email            = 'jpcloudspot@gmail.com'; // ex. example@gmail.com
-        $this->email_name       = 'Jayprakash JP Cloudspot';     // ex. Abidhusain
-        $this->client_id        = env('GMAIL_API_CLIENT_ID');
-        $this->client_secret    = env('GMAIL_API_CLIENT_SECRET');
-        $this->provider         = new Google(
-            [
-                'clientId'      => $this->client_id,
-                'clientSecret'  => $this->client_secret
-            ]
-        );
-
+        // Constructor - no special configuration needed
     }
 
     /**
-     * Send Email via PHPMailer Library
+     * Send Email via Laravel Mail with OAuth2
      */
     public function doSendEmail(Request $request)
     {
         try {
-            // Get valid access token (refresh if needed)
-            $validToken = $this->getValidToken();
+            // Get valid token (refresh if needed)
+            $tokenRecord = $this->getValidTokenRecord();
             
-            $mail = new PHPMailer(true);
-            $mail->isSMTP();
-            $mail->SMTPDebug = SMTP::DEBUG_OFF;
-            $mail->Host = 'smtp.gmail.com';
-            $mail->Port = 465;
-            $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
-            $mail->SMTPAuth = true;
-            $mail->AuthType = 'XOAUTH2';
-            $mail->setOAuth(
-                new OAuth(
-                    [
-                        'provider'          => $this->provider,
-                        'clientId'          => $this->client_id,
-                        'clientSecret'      => $this->client_secret,
-                        'refreshToken'      => $validToken,
-                        'userName'          => $this->email
-                    ]
-                )
-            );
-
-            $mail->setFrom($this->email, $this->name);
-            $mail->addAddress('jayprakashj@gmail.com', 'Jayprakash');
-            $mail->Subject = 'Laravel PHPMailer OAuth2 Integration';
-            $mail->CharSet = PHPMailer::CHARSET_UTF8;
-            $body = 'Hello <b>Everyone</b>,<br><br>We successfully completed our PHPMailer Integration in Laravel Project with Gmail OAuth2.<br><br>Thank you,<br><b>Abidhusain Chidi</b>';
-            $mail->msgHTML($body);
-            $mail->AltBody = 'This is a plain text message body';
+            // Send email using Laravel Mail with OAuth2
+            $this->sendOAuth2Email($tokenRecord);
             
-            if( $mail->send() ) {
-                return redirect()->back()->with('success', 'Successfully send email!');
-            } else {
-                return redirect()->back()->with('error', 'Unable to send email.');
-            }
-        } catch(Exception $e) {
-            return redirect()->back()->with('error', 'Exception: ' . $e->getMessage());
+            return redirect()->back()->with('success', 'Email sent successfully using Laravel Mail with OAuth2!');
+            
+        } catch(\Exception $e) {
+            return redirect()->back()->with('error', 'Failed to send email: ' . $e->getMessage());
         }
     }
 
     /**
-     * Get valid token (check expiry and refresh if needed)
+     * Send email using PHPMailer with OAuth2 (integrated with Laravel Mail)
      */
-    private function getValidToken()
+    private function sendOAuth2Email($tokenRecord)
+    {
+        $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+        
+        try {
+            $mail->isSMTP();
+            $mail->SMTPDebug = \PHPMailer\PHPMailer\SMTP::DEBUG_OFF;
+            $mail->Host = 'smtp.gmail.com';
+            $mail->Port = 465;
+            $mail->SMTPSecure = \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS;
+            $mail->SMTPAuth = true;
+            $mail->AuthType = 'XOAUTH2';
+            
+            $provider = new Google([
+                'clientId' => env('GMAIL_API_CLIENT_ID'),
+                'clientSecret' => env('GMAIL_API_CLIENT_SECRET')
+            ]);
+            
+            $mail->setOAuth(
+                new \PHPMailer\PHPMailer\OAuth([
+                    'provider' => $provider,
+                    'clientId' => env('GMAIL_API_CLIENT_ID'),
+                    'clientSecret' => env('GMAIL_API_CLIENT_SECRET'),
+                    'refreshToken' => $tokenRecord->refresh_token,
+                    'userName' => $this->fromEmail
+                ])
+            );
+
+            $mail->setFrom($this->fromEmail, $this->fromName);
+            $mail->addAddress($this->toEmail, $this->toName);
+            $mail->Subject = 'Laravel OAuth2 Integration Test';
+            $mail->CharSet = \PHPMailer\PHPMailer\PHPMailer::CHARSET_UTF8;
+            
+            // Use the Laravel Mail template
+            $mail->msgHTML(view('emails.oauth-test')->render());
+            $mail->AltBody = 'This is a plain text message body';
+            
+            if (!$mail->send()) {
+                throw new \Exception('Unable to send email.');
+            }
+            
+        } catch(\Exception $e) {
+            throw new \Exception('OAuth2 Email Error: ' . $e->getMessage());
+        }
+    }
+
+
+    /**
+     * Get valid token record (check expiry and refresh if needed)
+     */
+    private function getValidTokenRecord()
     {
         $userEmail = session('user_email', 'jpcloudspot@gmail.com');
         $tokenRecord = OAuthToken::findByEmail($userEmail);
         
         // If no tokens in database, throw error
         if (!$tokenRecord) {
-            throw new Exception('No OAuth token available. Please generate a new token first.');
+            throw new \Exception('No OAuth token available. Please generate a new token first.');
         }
         
         // Check if token is expired
         if ($tokenRecord->isExpired()) {
             if (!$tokenRecord->refresh_token) {
-                throw new Exception('Token expired and no refresh token available. Please generate a new token.');
+                throw new \Exception('Token expired and no refresh token available. Please generate a new token.');
             }
             
             // Refresh the token
-            $new_token = $this->refreshToken($tokenRecord->refresh_token, $userEmail);
-            return $new_token;
+            $this->refreshToken($tokenRecord->refresh_token, $userEmail);
+            
+            // Get the updated token record
+            $tokenRecord = OAuthToken::findByEmail($userEmail);
         }
         
-        return $tokenRecord->access_token;
+        return $tokenRecord;
     }
 
     /**

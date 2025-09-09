@@ -41,7 +41,7 @@
     <form action="{{ route('send.email') }}" method="post">
         @csrf
         <input type="hidden" name="oauth_token" value="{{ $tokenRecord->access_token }}">
-        <button type="submit" class="cursor p-2 px-6 bg-gray-100 text-gray-700 font-semibold">Send Test Email</button>
+        <button type="submit" class="cursor p-2 px-6 bg-gray-100 text-gray-700 font-semibold">Send Laravel Mail</button>
     </form>
     @endif
 </div>
