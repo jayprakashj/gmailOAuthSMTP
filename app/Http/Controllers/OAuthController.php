@@ -27,7 +27,9 @@ class OAuthController extends Controller
         $this->redirect_uri = route('token.success');
         $this->google_options = [
             'scope' => [
-                'https://mail.google.com/'
+                'https://mail.google.com/',
+                'https://www.googleapis.com/auth/userinfo.email',
+                'https://www.googleapis.com/auth/userinfo.profile'
             ],
             'access_type' => 'offline',
             'prompt' => 'consent'
@@ -71,16 +73,29 @@ class OAuthController extends Controller
                 $refresh_token = $tokenObj->getRefreshToken();
                 $expires_at = $tokenObj->getExpires();
                 
+                // Get user information including email
+                $userInfo = $this->getUserInfoFromToken($tokenObj);
+                $userEmail = $userInfo['email'] ?? null;
+                
+                // dd([
+                //     'token_obj' => $tokenObj,
+                //     'user_info' => $userInfo,
+                //     'user_email' => $userEmail
+                // ]);
+
                 // Debug information
                 \Log::info('Token generation debug:', [
                     'access_token' => $token ? 'Present' : 'Missing',
                     'refresh_token' => $refresh_token ? 'Present' : 'Missing',
                     'expires_at' => $expires_at,
-                    'token_obj' => $tokenObj
+                    'user_email' => $userEmail,
+                    'user_info' => $userInfo
                 ]);
                 
                 // Store token data in database
-                $userEmail = 'jpcloudspot@gmail.com'; // You can make this dynamic later
+                if (!$userEmail) {
+                    return redirect()->back()->with('error', 'Unable to retrieve user email from Google.');
+                }
                 OAuthToken::updateOrCreateForUser(
                     $userEmail,
                     $token,
@@ -183,12 +198,12 @@ class OAuthController extends Controller
      */
     public function getValidAccessToken()
     {
-        $userEmail = session('user_email', 'jpcloudspot@gmail.com');
+        $userEmail = session('user_email');
         
         if ($this->isTokenExpired($userEmail)) {
             return $this->refreshAccessToken();
         }
-        
+
         $tokenRecord = OAuthToken::findByEmail($userEmail);
         return $tokenRecord ? $tokenRecord->access_token : null;
     }
@@ -199,7 +214,7 @@ class OAuthController extends Controller
     public function loadTokensFromDatabase($userEmail = null)
     {
         if ($userEmail === null) {
-            $userEmail = session('user_email', 'jpcloudspot@gmail.com');
+            $userEmail = session('user_email');
         }
         
         $tokenRecord = OAuthToken::findByEmail($userEmail);
@@ -215,6 +230,29 @@ class OAuthController extends Controller
         }
         
         return false;
+    }
+
+    /**
+     * Get user information from token object
+     */
+    public function getUserInfoFromToken($tokenObj)
+    {
+        try {
+            $resourceOwner = $this->provider->getResourceOwner($tokenObj);
+            $userInfo = $resourceOwner->toArray();
+            
+            return [
+                'email' => $userInfo['email'] ?? null,
+                'name' => $userInfo['name'] ?? null,
+                'id' => $userInfo['id'] ?? null,
+                'picture' => $userInfo['picture'] ?? null,
+                'verified_email' => $userInfo['verified_email'] ?? null,
+                'full_info' => $userInfo
+            ];
+        } catch (Exception $e) {
+            \Log::error('Failed to get user info from token: ' . $e->getMessage());
+            return null;
+        }
     }
 
     /**

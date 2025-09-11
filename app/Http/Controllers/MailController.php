@@ -95,7 +95,7 @@ class MailController extends Controller
      */
     private function getValidTokenRecord()
     {
-        $userEmail = session('user_email', 'jpcloudspot@gmail.com');
+        $userEmail = session('user_email');
         $tokenRecord = OAuthToken::findByEmail($userEmail);
         
         // If no tokens in database, throw error
